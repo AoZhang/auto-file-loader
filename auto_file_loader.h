@@ -3,7 +3,7 @@
 //
 // @author  Zhang Ao, zhangaoup@aliyun.com
 // @brief   auto-file-loader.
-// @version 1.0
+// @version 1.5
 
 
 #ifndef __AUTO_FILE_LOADER_H__
@@ -28,7 +28,19 @@ public:
     virtual int load() = 0;
 };
 
-template<class T, class ConfType>
+template<class T>
+class LoaderWorkerBase {
+public:
+    virtual ~LoaderWorkerBase() {}
+
+    virtual int add_line(const char* line_input, T* data) = 0;
+
+    virtual int create(T& data) = 0;
+
+    virtual void free(T& data) = 0;
+};
+
+template<class T, class LoaderWorker>
 class AutoFileLoader: public LoaderBase {
 public:
     // @brief: init parse_line and free call back function, 
@@ -39,24 +51,26 @@ public:
     // @param[in] filename: file to be loaded
     AutoFileLoader(const char* loader_name,
             const char* filename,
-            int (*init_instance)(T& data, ConfType& conf),
-            void (*free_instance)(T& data),
-            int (*add_line)(const char* line, T* data),
-            ConfType& conf):
-        init_instance_callback(init_instance),
-        free_instance_callback(free_instance),
-        add_line_callback(add_line),
+            const LoaderWorker& lw):
         _loader_name(loader_name),
         _filename(filename),
         _buf_tag(0),
-        _conf(conf),
-        _is_loading(false) {
+        _is_loading(false),
+        _loader_worker(NULL) {
             pthread_mutex_init(&_load_tag_mutex, NULL);
+            _loader_worker = new(std::nothrow) LoaderWorker(lw);
+//            if (_loader_worker != NULL) {
+//                *_loader_worker = lw;
+//            }
         }
 
-    // @brief call "free_instance_callback" to free resouce
+    // @brief free resouce
     ~AutoFileLoader() {
-        free_instance_callback(_buffer[_buf_tag]);
+        _loader_worker->free(_buffer[_buf_tag]);
+        if (_loader_worker != NULL) {
+            delete _loader_worker;
+            _loader_worker = NULL;
+        }
     }
 
     // @brief initializing: load the file for the first time,
@@ -95,9 +109,9 @@ public:
 private:
     int load();
 
-    int (*init_instance_callback)(T& data, ConfType& conf);
-    void (*free_instance_callback)(T& data);
-    int (*add_line_callback)(const char* line, T* data);
+//    int (*init_instance_callback)(T& data, ConfType& conf);
+//    void (*free_instance_callback)(T& data);
+//    int (*add_line_callback)(const char* line, T* data);
 
 private:
     std::string _loader_name; // current loader name, only for logging
@@ -106,7 +120,8 @@ private:
     bool _ready;    // does buffer ready(first loading is finished)
     bool _buf_tag;  // index of buffer, 0 or 1
 
-    ConfType _conf;  // buffer creation config
+    //ConfType _conf;  // buffer creation config
+    LoaderWorkerBase<T>* _loader_worker;
 
     T _buffer[2];   // data buffer for auto loader
 

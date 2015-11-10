@@ -3,7 +3,7 @@
 //
 // @author  Zhang Ao, zhangaoup@aliyun.com
 // @brief   implementation of auto_file_loader
-// @version 1.0
+// @version 1.1
 
 
 #ifndef __AUTO_FILE_LOADER_HPP__
@@ -12,25 +12,29 @@
 #include <fstream>
 #include <iostream>
 
-template<class T, class ConfType>
-int AutoFileLoader<T, ConfType>::init() {
+template<class T, class LoaderWorker>
+int AutoFileLoader<T, LoaderWorker>::init() {
+    if (_loader_worker == NULL) {
+        return -1;
+    }
+
     int ret = load();
     if (ret != 0) {
-        return -1;
+        return -2;
     }
 
     _ready = true;
 
     ret = AutoReloader::instance().regist(this);
     if (ret != 0) {
-        return -2;
+        return -3;
     }
 
     return 0;
 }
 
-template<class T, class ConfType>
-int AutoFileLoader<T, ConfType>::load() {
+template<class T, class LoaderWorker>
+int AutoFileLoader<T, LoaderWorker>::load() {
     pthread_mutex_lock(&_load_tag_mutex);
     _is_loading = true;
     pthread_mutex_unlock(&_load_tag_mutex);
@@ -38,7 +42,7 @@ int AutoFileLoader<T, ConfType>::load() {
     int ret_code = 0;
 
     T& to_update_buffer = _buffer[!_buf_tag];
-    int ret = init_instance_callback(to_update_buffer, _conf);
+    int ret = _loader_worker->create(to_update_buffer);
     if (ret != 0) {
         ret_code = -1;
         pthread_mutex_lock(&_load_tag_mutex);
@@ -50,7 +54,7 @@ int AutoFileLoader<T, ConfType>::load() {
     std::ifstream ifs(_filename.c_str());
     std::string line;
     while (getline(ifs, line)) {
-        ret = add_line_callback(line.c_str(), &to_update_buffer);
+        ret = _loader_worker->add_line(line.c_str(), &to_update_buffer);
         if (ret != 0) {
             std::cerr << "add line error: " << line << std::endl;
         }
@@ -59,7 +63,7 @@ int AutoFileLoader<T, ConfType>::load() {
 
     _buf_tag = !_buf_tag;
     if (_ready) {
-        free_instance_callback(_buffer[!_buf_tag]);
+        _loader_worker->free(_buffer[!_buf_tag]);
     }
 
     ret = Utils::get_mtime(filename(), _last_load_time);
